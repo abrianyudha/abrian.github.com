@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Manajemen Dokumen Policy</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        
+        .pdf-viewer {
+            width: 100%;
+            height: 80vh;
+            border: none;
+        }
+        
+        .modal-content {
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+    <div id="app"></div>
+
+    <script>
+        // Icon components sebagai SVG
+        const icons = {
+            upload: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
+            file: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>',
+            search: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>',
+            download: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+            trash: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+            filter: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>',
+            folder: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
+            eye: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+            close: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+        };
+
+        // State management
+        let state = {
+            documents: [],
+            searchTerm: '',
+            selectedCategory: 'Semua',
+            showUploadModal: false,
+            showPreviewModal: false,
+            previewDocument: null,
+            newDoc: {
+                title: '',
+                category: '',
+                description: '',
+                file: null,
+                fileName: ''
+            }
+        };
+
+        const categories = [
+            'Semua',
+            'Kebijakan Umum',
+            'SDM & Kepegawaian',
+            'Keuangan',
+            'Operasional',
+            'IT & Keamanan',
+            'Kesehatan & Keselamatan'
+        ];
+
+        // Load documents from localStorage
+        function loadDocuments() {
+            try {
+                const saved = localStorage.getItem('policy-documents');
+                if (saved) {
+                    state.documents = JSON.parse(saved);
+                }
+            } catch (error) {
+                console.error('Error loading documents:', error);
+                state.documents = [];
+            }
+        }
+
+        // Save documents to localStorage
+        function saveDocuments() {
+            try {
+                localStorage.setItem('policy-documents', JSON.stringify(state.documents));
+            } catch (error) {
+                console.error('Error saving documents:', error);
+                alert('Gagal menyimpan dokumen. File mungkin terlalu besar.');
+            }
+        }
+
+        // Handle file selection
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                // Check file size (max 5MB)
+                if (file.size > 5 * 1024 * 1024) {
+                    alert('Ukuran file terlalu besar. Maksimal 5MB');
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    state.newDoc.file = reader.result;
+                    state.newDoc.fileName = file.name;
+                    render();
+                };
+                reader.onerror = () => {
+                    alert('Gagal membaca file');
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        // Handle upload
+        function handleUpload() {
+            console.log('Upload clicked', state.newDoc);
+            
+            if (!state.newDoc.title) {
+                alert('Mohon isi judul dokumen');
+                return;
+            }
+            
+            if (!state.newDoc.category) {
+                alert('Mohon pilih kategori');
+                return;
+            }
+            
+            if (!state.newDoc.file) {
+                alert('Mohon upload file dokumen');
+                return;
+            }
+
+            try {
+                const document = {
+                    id: Date.now(),
+                    title: state.newDoc.title,
+                    category: state.newDoc.category,
+                    description: state.newDoc.description || '-',
+                    fileName: state.newDoc.fileName,
+                    file: state.newDoc.file,
+                    uploadDate: new Date().toLocaleDateString('id-ID'),
+                    uploadTime: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+                };
+
+                state.documents.push(document);
+                saveDocuments();
+
+                // Reset form
+                state.newDoc = { title: '', category: '', description: '', file: null, fileName: '' };
+                state.showUploadModal = false;
+                
+                alert('Dokumen berhasil di-upload!');
+                render();
+            } catch (error) {
+                console.error('Error uploading:', error);
+                alert('Gagal upload dokumen: ' + error.message);
+            }
+        }
+
+        // Handle preview
+        function handlePreview(docId) {
+            const doc = state.documents.find(d => d.id === docId);
+            if (!doc) {
+                alert('Dokumen tidak ditemukan');
+                return;
+            }
+            
+            state.previewDocument = doc;
+            state.showPreviewModal = true;
+            render();
+        }
+
+        // Handle delete
+        function handleDelete(id) {
+            if (confirm('Apakah Anda yakin ingin menghapus dokumen ini?')) {
+                state.documents = state.documents.filter(doc => doc.id !== id);
+                saveDocuments();
+                render();
+            }
+        }
+
+        // Handle download
+        function handleDownload(docId) {
+            try {
+                const doc = state.documents.find(d => d.id === docId);
+                if (!doc) {
+                    alert('Dokumen tidak ditemukan');
+                    return;
+                }
+                
+                const link = document.createElement('a');
+                link.href = doc.file;
+                link.download = doc.fileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (error) {
+                console.error('Error downloading:', error);
+                alert('Gagal download dokumen');
+            }
+        }
+
+        // Get file extension
+        function getFileExtension(fileName) {
+            return fileName.split('.').pop().toLowerCase();
+        }
+
+        // Check if file can be previewed
+        function canPreview(fileName) {
+            const ext = getFileExtension(fileName);
+            return ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'txt'].includes(ext);
+        }
+
+        // Get filtered documents
+        function getFilteredDocuments() {
+            return state.documents.filter(doc => {
+                const matchesSearch = doc.title.toLowerCase().includes(state.searchTerm.toLowerCase()) ||
+                                    doc.description.toLowerCase().includes(state.searchTerm.toLowerCase());
+                const matchesCategory = state.selectedCategory === 'Semua' || doc.category === state.selectedCategory;
+                return matchesSearch && matchesCategory;
+            });
+        }
+
+        // Render function
+        function render() {
+            const filteredDocuments = getFilteredDocuments();
+            
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <!-- Header -->
+                <div class="bg-white shadow-md">
+                    <div class="max-w-7xl mx-auto px-4 py-6">
+                        <div class="flex items-center justify-between flex-wrap gap-4">
+                            <div class="flex items-center gap-3">
+                                ${icons.folder}
+                                <div>
+                                    <h1 class="text-2xl font-bold text-gray-800">Sistem Manajemen Dokumen</h1>
+                                    <p class="text-sm text-gray-600">Policy & Kebijakan Perusahaan</p>
+                                </div>
+                            </div>
+                            <button onclick="openUploadModal()" class="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition-colors shadow-md">
+                                ${icons.upload}
+                                Upload Dokumen
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="max-w-7xl mx-auto px-4 py-8">
+                    <!-- Search and Filter -->
+                    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="relative">
+                                <div class="absolute left-3 top-3 text-gray-400">${icons.search}</div>
+                                <input
+                                    type="text"
+                                    placeholder="Cari dokumen..."
+                                    value="${state.searchTerm}"
+                                    oninput="updateSearch(this.value)"
+                                    class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                />
+                            </div>
+                            <div class="relative">
+                                <div class="absolute left-3 top-3 text-gray-400">${icons.filter}</div>
+                                <select
+                                    onchange="updateCategory(this.value)"
+                                    class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent appearance-none"
+                                >
+                                    ${categories.map(cat => `
+                                        <option value="${cat}" ${state.selectedCategory === cat ? 'selected' : ''}>${cat}</option>
+                                    `).join('')}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Statistics -->
+                    <div class="bg-white rounded-lg shadow-md p-4 mb-6">
+                        <p class="text-sm text-gray-600">Total Dokumen: <strong>${state.documents.length}</strong> | Ditampilkan: <strong>${filteredDocuments.length}</strong></p>
+                    </div>
+
+                    <!-- Documents Grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        ${filteredDocuments.length === 0 ? `
+                            <div class="col-span-full text-center py-12">
+                                <div class="mx-auto text-gray-400 mb-4 flex justify-center">${icons.file}</div>
+                                <p class="text-gray-600 text-lg">
+                                    ${state.documents.length === 0 ? 'Belum ada dokumen. Upload dokumen pertama Anda!' : 'Tidak ada dokumen yang sesuai dengan pencarian'}
+                                </p>
+                            </div>
+                        ` : filteredDocuments.map(doc => `
+                            <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow">
+                                <div class="p-6">
+                                    <div class="flex items-start justify-between mb-3">
+                                        <div class="text-indigo-600">${icons.file}</div>
+                                        <button onclick="handleDelete(${doc.id})" class="text-red-500 hover:text-red-700 transition-colors">
+                                            ${icons.trash}
+                                        </button>
+                                    </div>
+                                    <h3 class="font-bold text-lg text-gray-800 mb-2 line-clamp-2">${doc.title}</h3>
+                                    <div class="mb-3">
+                                        <span class="inline-block bg-indigo-100 text-indigo-800 text-xs px-3 py-1 rounded-full">
+                                            ${doc.category}
+                                        </span>
+                                    </div>
+                                    <p class="text-gray-600 text-sm mb-4 line-clamp-2">${doc.description}</p>
+                                    <div class="text-xs text-gray-500 mb-4">
+                                        <p>File: ${doc.fileName}</p>
+                                        <p>Upload: ${doc.uploadDate} ${doc.uploadTime}</p>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <button onclick="handlePreview(${doc.id})" class="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors">
+                                            ${icons.eye}
+                                            Lihat
+                                        </button>
+                                        <button onclick="handleDownload(${doc.id})" class="flex-1 flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors">
+                                            ${icons.download}
+                                            Download
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- Upload Modal -->
+                ${state.showUploadModal ? `
+                    <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onclick="closeModalOnBackdrop(event, 'upload')">
+                        <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+                            <div class="p-6">
+                                <div class="flex items-center justify-between mb-6">
+                                    <h2 class="text-2xl font-bold text-gray-800">Upload Dokumen Baru</h2>
+                                    <button onclick="closeUploadModal()" class="text-gray-500 hover:text-gray-700">
+                                        ${icons.close}
+                                    </button>
+                                </div>
+                                
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Judul Dokumen *</label>
+                                        <input
+                                            type="text"
+                                            value="${state.newDoc.title}"
+                                            oninput="updateNewDocField('title', this.value)"
+                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                            placeholder="Contoh: Kebijakan Cuti Tahunan 2025"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Kategori *</label>
+                                        <select
+                                            onchange="updateNewDocField('category', this.value)"
+                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                        >
+                                            <option value="">Pilih Kategori</option>
+                                            ${categories.slice(1).map(cat => `
+                                                <option value="${cat}" ${state.newDoc.category === cat ? 'selected' : ''}>${cat}</option>
+                                            `).join('')}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Deskripsi</label>
+                                        <textarea
+                                            oninput="updateNewDocField('description', this.value)"
+                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                            rows="3"
+                                            placeholder="Deskripsi singkat tentang dokumen ini..."
+                                        >${state.newDoc.description}</textarea>
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">File Dokumen *</label>
+                                        <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-indigo-500 transition-colors">
+                                            <input
+                                                type="file"
+                                                onchange="handleFileSelect(event)"
+                                                class="hidden"
+                                                id="file-upload"
+                                                accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.txt"
+                                            />
+                                            <label for="file-upload" class="cursor-pointer block">
+                                                <div class="mx-auto text-gray-400 mb-2 flex justify-center">${icons.upload}</div>
+                                                <p class="text-gray-600 font-medium">
+                                                    ${state.newDoc.fileName || 'Klik untuk upload file'}
+                                                </p>
+                                                <p class="text-xs text-gray-500 mt-1">PDF, Word, Excel, PowerPoint, Gambar, Text (Max 5MB)</p>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="flex gap-3 mt-6">
+                                    <button onclick="closeUploadModal()" class="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                                        Batal
+                                    </button>
+                                    <button onclick="handleUpload()" class="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+                                        Upload Dokumen
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
+
+                <!-- Preview Modal -->
+                ${state.showPreviewModal && state.previewDocument ? `
+                    <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50" onclick="closeModalOnBackdrop(event, 'preview')">
+                        <div class="bg-white rounded-lg shadow-xl w-full max-w-6xl modal-content" onclick="event.stopPropagation()">
+                            <div class="p-4 border-b flex items-center justify-between">
+                                <div class="flex-1">
+                                    <h2 class="text-xl font-bold text-gray-800">${state.previewDocument.title}</h2>
+                                    <p class="text-sm text-gray-600">${state.previewDocument.fileName}</p>
+                                </div>
+                                <div class="flex gap-2">
+                                    <button onclick="handleDownload(${state.previewDocument.id})" class="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors">
+                                        ${icons.download}
+                                        Download
+                                    </button>
+                                    <button onclick="closePreviewModal()" class="text-gray-500 hover:text-gray-700 px-2">
+                                        ${icons.close}
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="p-4">
+                                ${(() => {
+                                    const ext = getFileExtension(state.previewDocument.fileName);
+                                    if (ext === 'pdf') {
+                                        return `<iframe src="${state.previewDocument.file}" class="pdf-viewer" type="application/pdf"></iframe>`;
+                                    } else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
+                                        return `<img src="${state.previewDocument.file}" class="w-full h-auto" alt="${state.previewDocument.title}" />`;
+                                    } else if (ext === 'txt') {
+                                        return `<div class="bg-gray-50 p-4 rounded-lg max-h-[70vh] overflow-y-auto"><pre class="whitespace-pre-wrap text-sm">${atob(state.previewDocument.file.split(',')[1])}</pre></div>`;
+                                    } else {
+                                        return `
+                                            <div class="text-center py-12">
+                                                <div class="mx-auto text-gray-400 mb-4">${icons.file}</div>
+                                                <p class="text-gray-600 mb-4">Preview tidak tersedia untuk file ${ext.toUpperCase()}</p>
+                                                <p class="text-sm text-gray-500 mb-6">File Word, Excel, dan PowerPoint tidak bisa di-preview di browser.<br>Silakan download untuk melihat isinya.</p>
+                                                <button onclick="handleDownload(${state.previewDocument.id})" class="inline-flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition-colors">
+                                                    ${icons.download}
+                                                    Download File
+                                                </button>
+                                            </div>
+                                        `;
+                                    }
+                                })()}
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
+            `;
+        }
+
+        // Global functions
+        window.openUploadModal = () => {
+            console.log('Opening upload modal');
+            state.showUploadModal = true;
+            render();
+        };
+
+        window.closeUploadModal = () => {
+            state.showUploadModal = false;
+            state.newDoc = { title: '', category: '', description: '', file: null, fileName: '' };
+            render();
+        };
+
+        window.closePreviewModal = () => {
+            state.showPreviewModal = false;
+            state.previewDocument = null;
+            render();
+        };
+
+        window.closeModalOnBackdrop = (event, type) => {
+            if (event.target === event.currentTarget) {
+                if (type === 'upload') {
+                    closeUploadModal();
+                } else if (type === 'preview') {
+                    closePreviewModal();
+                }
+            }
+        };
+
+        window.updateSearch = (value) => {
+            state.searchTerm = value;
+            render();
+        };
+
+        window.updateCategory = (value) => {
+            state.selectedCategory = value;
+            render();
+        };
+
+        window.updateNewDocField = (field, value) => {
+            state.newDoc[field] = value;
+            console.log('Updated field:', field, value);
+        };
+
+        window.handleFileSelect = handleFileSelect;
+        window.handleUpload = handleUpload;
+        window.handlePreview = handlePreview;
+        window.handleDelete = handleDelete;
+        window.handleDownload = handleDownload;
+
+        // Initialize
+        console.log('Initializing app...');
+        loadDocuments();
+        render();
+        console.log('App initialized. Documents:', state.documents.length);
+    </script>
+</body>
+</html>
