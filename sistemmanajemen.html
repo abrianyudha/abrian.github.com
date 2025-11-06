@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Sistem Manajemen Dokumen | Supabase</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Supabase library versi non-module -->
+  <!-- Supabase library non-module -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.47.0/dist/umd/supabase.min.js"></script>
 </head>
 <body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
   <div id="app"></div>
 
   <script>
-    // === Supabase Config ===
+    // === Konfigurasi Supabase ===
     const SUPABASE_URL = "https://axyqczuoklugkwqediaf.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF4eXFjenVva2x1Z2t3cWVkaWFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI0MTA1OTIsImV4cCI6MjA3Nzk4NjU5Mn0.JhVQShNjueYqdSAKJNy1uGmyfbc5s7bn_17IzZ-B718";
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -35,27 +35,24 @@
       search: ""
     };
 
-    // === Global Handlers ===
-    window.handleFieldChange = (field, value) => {
-      window.state.newDoc[field] = value;
-    };
+    // === Helper Functions ===
+    window.handleFieldChange = (field, value) => window.state.newDoc[field] = value;
+    window.handleFileSelect = (e) => window.state.newDoc.file = e.target.files[0] || null;
+    window.handleSearch = (v) => { window.state.search = v; render(); };
+    window.handleCategoryFilter = (v) => { window.state.selectedCategory = v; render(); };
 
-    window.handleFileSelect = (e) => {
-      const file = e.target.files[0];
-      window.state.newDoc.file = file || null;
-    };
+    // Escape HTML to avoid injection
+    function escapeHtml(str) {
+      if (!str) return "";
+      return String(str)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
 
-    window.handleSearch = (value) => {
-      window.state.search = value;
-      render();
-    };
-
-    window.handleCategoryFilter = (value) => {
-      window.state.selectedCategory = value;
-      render();
-    };
-
-    // === Load Documents from Supabase ===
+    // === Load Data from Supabase ===
     async function loadDocuments() {
       const { data, error } = await supabase
         .from("documents")
@@ -91,8 +88,11 @@
         return;
       }
 
+      // Dapatkan public URL dan pastikan pakai /public/
       const { data: urlData } = supabase.storage.from("documents").getPublicUrl(fileName);
-      const fileURL = urlData.publicUrl;
+      const fileURL = urlData.publicUrl.includes("/public/")
+        ? urlData.publicUrl
+        : urlData.publicUrl.replace("/object/", "/object/public/");
 
       const { error: dbErr } = await supabase.from("documents").insert([
         { title, category, description, file_name: fileName, file_url: fileURL }
@@ -119,7 +119,7 @@
       await loadDocuments();
     }
 
-    // === Render UI ===
+    // === UI Rendering ===
     function render() {
       const app = document.getElementById("app");
       const s = window.state;
@@ -135,7 +135,7 @@
           <div class="flex justify-between items-center mb-6">
             <div>
               <h1 class="text-2xl font-bold text-indigo-700">📂 Sistem Manajemen Dokumen</h1>
-              <p class="text-sm text-gray-500">Terhubung ke Supabase</p>
+              <p class="text-sm text-gray-500">Terhubung ke Supabase Storage</p>
             </div>
             <button onclick="openModal()" class="bg-indigo-600 text-white px-5 py-2 rounded-lg shadow hover:bg-indigo-700">
               + Upload
@@ -190,22 +190,13 @@
       `;
     }
 
-    // === Helpers ===
-    function escapeHtml(str) {
-      if (!str) return "";
-      return String(str)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-    }
-
+    // === Modal Control ===
     window.openModal = () => { window.state.showModal = true; render(); };
     window.closeModal = () => { window.state.showModal = false; render(); };
     window.uploadDocument = uploadDocument;
     window.deleteDocument = deleteDocument;
 
+    // === Load Data saat pertama kali ===
     loadDocuments();
   </script>
 </body>
