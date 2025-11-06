@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sistem Manajemen Dokumen | Supabase Version</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+    // === KONFIGURASI SUPABASE ===
+    const SUPABASE_URL = "https://axyqczuoklugkwqediaf.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF4eXFjenVva2x1Z2t3cWVkaWFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI0MTA1OTIsImV4cCI6MjA3Nzk4NjU5Mn0.JhVQShNjueYqdSAKJNy1uGmyfbc5s7bn_17IzZ-B718";
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // === STATE ===
+    let state = {
+      documents: [],
+      showModal: false,
+      newDoc: { title: "", category: "", description: "", file: null },
+      categories: ["Semua", "Kebijakan Umum", "SDM & Kepegawaian", "Keuangan", "Operasional", "IT & Keamanan", "Kesehatan & Keselamatan"],
+      selectedCategory: "Semua",
+      search: ""
+    };
+
+    const app = document.getElementById("app");
+
+    // === LOAD DATA ===
+    async function loadDocuments() {
+      const { data, error } = await supabase
+        .from("documents")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error(error);
+        alert("Gagal memuat dokumen dari Supabase");
+        return;
+      }
+
+      state.documents = data;
+      render();
+    }
+
+    // === UPLOAD ===
+    async function uploadDocument() {
+      const { title, category, description, file } = state.newDoc;
+      if (!title || !category || !file) {
+        alert("Mohon isi semua field dan pilih file");
+        return;
+      }
+
+      const fileName = `${Date.now()}_${file.name}`;
+      const { error: uploadError } = await supabase.storage
+        .from("documents")
+        .upload(fileName, file);
+
+      if (uploadError) {
+        alert("Gagal upload file: " + uploadError.message);
+        return;
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("documents")
+        .getPublicUrl(fileName);
+
+      const fileURL = urlData.publicUrl;
+
+      const { error: insertError } = await supabase.from("documents").insert([
+        {
+          title,
+          category,
+          description,
+          file_name: fileName,
+          file_url: fileURL
+        }
+      ]);
+
+      if (insertError) {
+        alert("Gagal menyimpan metadata: " + insertError.message);
+        return;
+      }
+
+      alert("✅ Dokumen berhasil di-upload!");
+      state.showModal = false;
+      state.newDoc = { title: "", category: "", description: "", file: null };
+      await loadDocuments();
+    }
+
+    // === DELETE ===
+    async function deleteDocument(id, fileName) {
+      if (!confirm("Yakin ingin hapus dokumen ini?")) return;
+
+      await supabase.storage.from("documents").remove([fileName]);
+      await supabase.from("documents").delete().eq("id", id);
+      await loadDocuments();
+    }
+
+    // === RENDER ===
+    function render() {
+      const filtered = state.documents.filter(
+        d =>
+          (state.selectedCategory === "Semua" || d.category === state.selectedCategory) &&
+          (d.title.toLowerCase().includes(state.search.toLowerCase()) ||
+           d.description.toLowerCase().includes(state.search.toLowerCase()))
+      );
+
+      app.innerHTML = `
+        <div class="max-w-6xl mx-auto p-6">
+          <div class="flex justify-between items-center mb-6">
+            <div>
+              <h1 class="text-2xl font-bold text-indigo-700">📂 Sistem Manajemen Dokumen</h1>
+              <p class="text-sm text-gray-500">Terhubung ke Supabase</p>
+            </div>
+            <button onclick="openModal()" class="bg-indigo-600 text-white px-5 py-2 rounded-lg shadow hover:bg-indigo-700">
+              + Upload
+            </button>
+          </div>
+
+          <div class="flex flex-col md:flex-row gap-3 mb-6">
+            <input type="text" placeholder="Cari dokumen..." class="border px-3 py-2 rounded w-full"
+              oninput="state.search=this.value; render();" />
+            <select onchange="state.selectedCategory=this.value; render();" class="border px-3 py-2 rounded w-full md:w-1/3">
+              ${state.categories.map(c => `<option ${c===state.selectedCategory?'selected':''}>${c}</option>`).join("")}
+            </select>
+          </div>
+
+          <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            ${filtered.map(d => `
+              <div class="bg-white p-4 rounded-lg shadow-md flex flex-col justify-between">
+                <div>
+                  <h2 class="font-semibold text-gray-800 mb-1">${d.title}</h2>
+                  <p class="text-sm text-indigo-600 mb-2">${d.category}</p>
+                  <p class="text-gray-500 text-sm mb-3">${d.description || "-"}</p>
+                  <p class="text-xs text-gray-400 mb-4">${new Date(d.created_at).toLocaleString("id-ID")}</p>
+                </div>
+                <div class="flex gap-2 mt-auto">
+                  <a href="${d.file_url}" target="_blank" class="flex-1 text-center bg-green-600 text-white px-3 py-2 rounded hover:bg-green-700">Lihat</a>
+                  <button onclick="deleteDocument('${d.id}','${d.file_name}')" class="flex-1 bg-red-500 text-white px-3 py-2 rounded hover:bg-red-600">Hapus</button>
+                </div>
+              </div>
+            `).join("") || `<p class='text-gray-600'>Belum ada dokumen.</p>`}
+          </div>
+
+          ${state.showModal ? `
+          <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg w-full max-w-md shadow-lg">
+              <h2 class="text-xl font-bold mb-4 text-gray-800">Upload Dokumen Baru</h2>
+              <input type="text" placeholder="Judul" class="border px-3 py-2 w-full mb-3"
+                oninput="state.newDoc.title=this.value">
+              <select class="border px-3 py-2 w-full mb-3"
+                onchange="state.newDoc.category=this.value">
+                <option value="">Pilih Kategori</option>
+                ${state.categories.slice(1).map(c => `<option>${c}</option>`).join("")}
+              </select>
+              <textarea placeholder="Deskripsi" class="border px-3 py-2 w-full mb-3" rows="3"
+                oninput="state.newDoc.description=this.value"></textarea>
+              <input type="file" class="mb-3" onchange="state.newDoc.file=this.files[0]">
+              <div class="flex gap-2">
+                <button onclick="uploadDocument()" class="flex-1 bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">Upload</button>
+                <button onclick="closeModal()" class="flex-1 border border-gray-300 px-4 py-2 rounded hover:bg-gray-50">Batal</button>
+              </div>
+            </div>
+          </div>` : ""}
+        </div>
+      `;
+    }
+
+    // === UI Helpers ===
+    window.openModal = () => { state.showModal = true; render(); };
+    window.closeModal = () => { state.showModal = false; render(); };
+    window.uploadDocument = uploadDocument;
+    window.deleteDocument = deleteDocument;
+
+    loadDocuments();
+  </script>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+  <div id="app"></div>
+</body>
+</html>
